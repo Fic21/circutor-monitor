@@ -1,52 +1,133 @@
-import { Bell, RefreshCw } from "lucide-react";
 
-interface Props {
-  connected: boolean;
-  lastUpdated: string | null;
-  onRefresh: () => void;
-}
+"use client";
 
-export default function Header({
-  connected,
-  lastUpdated,
-  onRefresh,
-}: Props) {
+import { useState } from "react";
+import {
+  Zap,
+  Wifi,
+  WifiOff,
+  LoaderCircle,
+} from "lucide-react";
+
+import { useConnection } from "@/components/providers/ConnectionProvider";
+
+export default function Header() {
+  const {
+    status,
+    isConnected,
+    connect,
+    disconnect,
+  } = useConnection();
+
+  const [error, setError] = useState<string | null>(null);
+
+  const isBusy =
+    status === "checking" ||
+    status === "connecting" ||
+    status === "disconnecting";
+
+  async function handleConnection() {
+    setError(null);
+
+    try {
+      if (isConnected) {
+        await disconnect();
+      } else {
+        await connect();
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Terjadi kesalahan koneksi"
+      );
+    }
+  }
+
+  const statusLabel = {
+    checking: "CHECKING",
+    connecting: "CONNECTING",
+    connected: "CONNECTED",
+    disconnecting: "DISCONNECTING",
+    disconnected: "DISCONNECTED",
+  }[status];
+
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">
-          Energy Overview
-        </h2>
-        <p className="text-xs text-slate-500">
-          CIRCUTOR Computer C6
-        </p>
+    <header className="flex min-h-[76px] items-center justify-between border-b border-slate-800 bg-slate-950 px-6 py-4 text-white shadow-lg shadow-black/20">
+      {/* Identitas aplikasi */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center">
+</div>
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 text-sm">
-          <span
-            className={`h-2.5 w-2.5 rounded-full ${
-              connected ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-          <span className="text-slate-600">
-            {connected ? "Connected" : "Disconnected"}
-          </span>
+      {/* Identitas pembuat dan koneksi */}
+      <div className="flex items-center gap-6">
+        <div className="hidden text-right sm:block">
+          <p className="text-xs font-medium tracking-wider text-slate-300">
+            CREATED BY
+          </p>
+
+          <p className="mt-1 text-sm font-semibold text-blue-400">
+            Fikra
+          </p>
         </div>
 
-        <button
-          onClick={onRefresh}
-          className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100"
-          title="Refresh data"
-        >
-          <RefreshCw size={18} />
-        </button>
+        <div className="h-9 w-px bg-slate-700" />
 
-        <Bell size={19} className="text-slate-500" />
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            {isBusy ? (
+              <LoaderCircle
+                size={15}
+                className="animate-spin text-amber-400"
+              />
+            ) : isConnected ? (
+              <Wifi size={15} className="text-emerald-400" />
+            ) : (
+              <WifiOff size={15} className="text-slate-400" />
+            )}
 
-        <span className="hidden text-xs text-slate-500 sm:block">
-          Updated: {lastUpdated ?? "--"}
-        </span>
+            <span
+              className={`text-[10px] font-semibold tracking-widest ${
+                isConnected
+                  ? "text-emerald-400"
+                  : status === "connecting" ||
+                      status === "disconnecting"
+                    ? "text-amber-400"
+                    : "text-slate-400"
+              }`}
+            >
+              {statusLabel}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleConnection}
+            disabled={isBusy}
+            className={`flex min-w-[112px] items-center justify-center gap-2 px-4 py-2 text-xs font-bold tracking-wide transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              isConnected
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "bg-blue-600 text-white hover:bg-blue-700"
+            }`}
+          >
+            {isBusy
+              ? status === "checking"
+                ? "PLEASE WAIT"
+                : status === "connecting"
+                  ? "CONNECTING"
+                  : "DISCONNECTING"
+              : isConnected
+                ? "DISCONNECT"
+                : "CONNECT"}
+          </button>
+
+          {error && (
+            <p className="max-w-[220px] text-right text-[10px] text-red-400">
+              {error}
+            </p>
+          )}
+        </div>
       </div>
     </header>
   );

@@ -6,6 +6,10 @@ const ALLOWED_RESOURCES = [
   "device-measures",
   "device-steps",
   "device-alarms",
+  "device-info",
+  "wifi",
+  "bluetooth",
+  "thingsboard",
 ];
 
 export async function GET(

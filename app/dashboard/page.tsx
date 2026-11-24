@@ -2,6 +2,7 @@
 "use client";
 
 import { useDashboardData } from "@/hooks/useDashboardData";
+import { useConnection } from "@/components/providers/ConnectionProvider";
 
 type Measurement = {
   Name: string;
@@ -104,7 +105,6 @@ function StepsPanel({
     >
       <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-cyan-500/10 blur-3xl" />
 
-      {/* HEADER */}
       <div className="relative flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -128,7 +128,6 @@ function StepsPanel({
         </div>
       </div>
 
-      {/* OPERATING HOURS */}
       <div className="relative mt-5 rounded-xl border border-cyan-500/20 bg-gradient-to-r from-cyan-500/10 to-blue-500/5 p-4">
         <div className="flex items-center justify-between">
           <div>
@@ -149,7 +148,6 @@ function StepsPanel({
         </div>
       </div>
 
-      {/* STEP GRID */}
       <div className="relative mt-5">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-xs font-bold tracking-widest text-slate-300">
@@ -163,8 +161,7 @@ function StepsPanel({
         {steps.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {steps.map((step) => {
-              const active =
-                String(step.Status).toUpperCase() === "ON";
+              const active = String(step.Status).toUpperCase() === "ON";
 
               return (
                 <div
@@ -175,7 +172,6 @@ function StepsPanel({
                       : "border-slate-700 bg-[#0b1423] hover:border-slate-500"
                   }`}
                 >
-                  {/* ACTIVE BAR */}
                   {active && (
                     <div className="absolute right-0 top-0 h-1 w-10 bg-emerald-400 shadow-[0_0_10px_#34d399]" />
                   )}
@@ -338,7 +334,6 @@ function AlarmPanel({
     >
       <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-red-500/10 blur-3xl" />
 
-      {/* HEADER */}
       <div className="relative flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -372,7 +367,6 @@ function AlarmPanel({
         </div>
       </div>
 
-      {/* SUMMARY */}
       <div className="relative mt-5 grid grid-cols-2 gap-3">
         <div className="rounded-xl border border-slate-700 bg-[#0b1423] p-3">
           <p className="text-[10px] tracking-widest text-slate-500">
@@ -393,7 +387,6 @@ function AlarmPanel({
         </div>
       </div>
 
-      {/* ALARM LIST */}
       <div className="relative mt-5">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-xs font-bold tracking-widest text-slate-300">
@@ -448,7 +441,6 @@ function AlarmPanel({
                   </span>
                 </div>
 
-                {/* DISPLAY ALL ORIGINAL ALARM FIELDS */}
                 <div className="mt-4 grid grid-cols-2 gap-2 border-t border-slate-700/70 pt-3">
                   {alarm.fields.map(([key, value]) => (
                     <div key={key} className="min-w-0">
@@ -476,7 +468,6 @@ function AlarmPanel({
         )}
       </div>
 
-      {/* ALARM WARNING */}
       {activeCount > 0 && (
         <div className="relative mt-4 flex items-center gap-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3">
           <span className="h-3 w-3 animate-ping rounded-full bg-red-500" />
@@ -517,9 +508,12 @@ export default function DashboardPage() {
     stopAlarmsPolling,
   } = useDashboardData();
 
-  const measurements = getMeasurements(data.measurements);
+  const {
+    isConnected,
+    status: connectionStatus,
+  } = useConnection();
 
-  const isConnected = !status.error && !status.loading;
+  const measurements = getMeasurements(data.measurements);
 
   return (
     <main className="min-h-screen space-y-7 bg-[#080f1c] p-4 text-white sm:p-6 lg:p-8">
@@ -551,26 +545,30 @@ export default function DashboardPage() {
 
           <div>
             <p className="text-sm font-bold">
-              {status.loading
-                ? "CONNECTING"
-                : status.error
-                  ? "DISCONNECTED"
-                  : "SYSTEM ONLINE"}
+              {connectionStatus === "checking"
+                ? "CHECKING"
+                : connectionStatus === "connecting"
+                  ? "CONNECTING"
+                  : connectionStatus === "disconnecting"
+                    ? "DISCONNECTING"
+                    : isConnected
+                      ? "SYSTEM ONLINE"
+                      : "DISCONNECTED"}
             </p>
 
             <p className="mt-1 text-[10px] tracking-wider text-slate-500">
-              {status.lastUpdated
-                ? `LAST UPDATE: ${new Date(status.lastUpdated).toLocaleTimeString("id-ID")}`
-                : "WAITING FOR DATA"}
+              {isConnected && status.lastUpdated
+                ? `LAST UPDATE: ${status.lastUpdated}`
+                : "WAITING FOR CONNECTION"}
             </p>
           </div>
         </div>
       </header>
 
       {/* CONNECTION ERROR */}
-      {status.error && (
+      {isConnected && status.error && (
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-300">
-          <p className="font-bold">CONNECTION ERROR</p>
+          <p className="font-bold">DATA CONNECTION ERROR</p>
           <p className="mt-1">{String(status.error)}</p>
         </div>
       )}
@@ -594,7 +592,9 @@ export default function DashboardPage() {
 
         {measurements.length === 0 ? (
           <div className="rounded-2xl border border-slate-800 bg-[#101b2d] p-12 text-center text-sm text-slate-500">
-            No measurement data available
+            {isConnected
+              ? "No measurement data available"
+              : "Connect to CIRCUTOR to view measurements"}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -663,7 +663,6 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-
           <StepsPanel
             data={data.steps}
             onMouseEnter={startStepsPolling}
@@ -675,7 +674,6 @@ export default function DashboardPage() {
             onMouseEnter={startAlarmsPolling}
             onMouseLeave={stopAlarmsPolling}
           />
-
         </div>
       </section>
 
@@ -683,7 +681,6 @@ export default function DashboardPage() {
       <footer className="border-t border-slate-800 pt-5 text-center text-[10px] tracking-[0.2em] text-slate-600">
         CIRCUTOR INDUSTRIAL MONITORING SYSTEM · POWER MANAGEMENT
       </footer>
-
     </main>
   );
 }
