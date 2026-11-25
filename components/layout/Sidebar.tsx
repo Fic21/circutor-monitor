@@ -19,7 +19,7 @@ const menuItems = [
     icon: LayoutDashboard,
   },
   {
-    name: "Measurements",
+    name: "History",
     href: "/measurements",
     icon: Activity,
   },
@@ -46,15 +46,16 @@ export default function Sidebar() {
   return (
     <aside className="hidden min-h-screen w-64 shrink-0 bg-slate-950 p-5 text-white md:block">
       <div className="mb-10 flex items-center gap-3">
-        <div className="rounded-lg bg-blue-600 p-2">
-          <Zap size={22} />
+        <div className="rounded-lg bg-blue-600 p-3">
+          <Zap size={26} />
         </div>
 
         <div>
-          <h1 className="font-bold">CIRCUTOR</h1>
+          <h1 className="font-bold">CIRCUTOR C6 WiFi</h1>
           <p className="text-xs text-slate-400">
-            Energy Monitoring
+            Monitoring Capasitor Bank
           </p>
+          <p className="text-xs text-slate-200">Indochemical Citra Kimia</p>
         </div>
       </div>
 
