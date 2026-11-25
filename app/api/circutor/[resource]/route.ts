@@ -35,13 +35,23 @@ export async function GET(
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Internal server error";
+      error instanceof Error
+        ? error.message
+        : "Internal server error";
 
-    console.error("CIRCUTOR API:", message);
+    console.error("CIRCUTOR API ERROR:", message);
 
     return NextResponse.json(
-      { error: message },
-      { status: 502 }
+      {
+        success: false,
+        error: message,
+      },
+      {
+        status: 502,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
     );
   }
 }

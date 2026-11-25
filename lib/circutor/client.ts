@@ -47,6 +47,22 @@ function getConfig() {
 }
 
 // ==========================================
+// RESOURCE PATHS
+// ==========================================
+
+const RESOURCE_PATHS: Record<string, string> = {
+  "device-measures": "device-measures",
+  "device-steps": "device-steps",
+  "device-alarms": "device-alarms",
+  "device-info": "device-info",
+
+  // Network resources
+  wifi: "net/wifi",
+  bluetooth: "bluetooth",
+  thingsboard: "net/thingsboard",
+};
+
+// ==========================================
 // LOGIN
 // ==========================================
 
@@ -84,8 +100,6 @@ async function login(): Promise<string> {
     );
   }
 
-  // Cegah token tersimpan jika Disconnect
-  // dilakukan saat proses login berlangsung.
   if (currentVersion !== session.version) {
     throw new Error("Proses koneksi dibatalkan");
   }
@@ -100,22 +114,20 @@ async function login(): Promise<string> {
 // ==========================================
 
 export async function connectCircutor(): Promise<void> {
-  // Sudah terhubung.
   if (session.token) {
     return;
   }
 
-  // Hindari login ganda.
   if (!session.loginPromise) {
     const request = login();
 
-    session.loginPromise = request.finally(() => {
+    const wrappedRequest = request.finally(() => {
       if (session.loginPromise === wrappedRequest) {
         session.loginPromise = null;
       }
     });
 
-    const wrappedRequest = session.loginPromise;
+    session.loginPromise = wrappedRequest;
   }
 
   await session.loginPromise;
@@ -126,10 +138,7 @@ export async function connectCircutor(): Promise<void> {
 // ==========================================
 
 export function disconnectCircutor(): void {
-  // Membatalkan hasil request yang masih berjalan.
   session.version += 1;
-
-  // Menghapus sesi aplikasi.
   session.token = null;
   session.loginPromise = null;
 }
@@ -151,11 +160,12 @@ export async function getCircutorResource<T>(
 ): Promise<T> {
   const config = getConfig();
 
-  if (!/^[a-z0-9-]+$/i.test(resource)) {
-    throw new Error("Nama resource tidak valid");
+  const resourcePath = RESOURCE_PATHS[resource];
+
+  if (!resourcePath) {
+    throw new Error(`Resource tidak dikenal: ${resource}`);
   }
 
-  // Tidak boleh login otomatis.
   if (!session.token) {
     throw new Error(
       "CIRCUTOR belum terhubung. Tekan Connect terlebih dahulu."
@@ -165,7 +175,7 @@ export async function getCircutorResource<T>(
   const token = session.token;
   const currentVersion = session.version;
 
-  const endpoint = `${config.baseUrl}/api/v1/${resource}`;
+  const endpoint = `${config.baseUrl}/api/v1/${resourcePath}`;
 
   const response = await fetch(endpoint, {
     method: "GET",
@@ -177,13 +187,10 @@ export async function getCircutorResource<T>(
     signal: AbortSignal.timeout(5000),
   });
 
-  // Periksa apakah Disconnect terjadi
-  // ketika request sedang berjalan.
   if (currentVersion !== session.version) {
     throw new Error("Koneksi CIRCUTOR telah diputus");
   }
 
-  // Token kedaluwarsa.
   if (response.status === 401) {
     if (session.token === token) {
       session.token = null;

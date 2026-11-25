@@ -25,7 +25,6 @@ type ItemStatus = {
 };
 
 type DashboardStatus = Record<DataKey, ItemStatus> & {
-  // Kompatibilitas dengan Dashboard yang sudah ada.
   loading: boolean;
   error: string | null;
   lastUpdated: string | null;
@@ -55,6 +54,26 @@ const initialStatus = (): Record<DataKey, ItemStatus> => ({
   alarms: { ...initialItemStatus },
 });
 
+// ==========================================
+// POLLING INTERVAL
+// ==========================================
+
+const getPollingInterval = (
+  key: DataKey,
+  isHovered: boolean
+): number => {
+  switch (key) {
+    case "measurements":
+      return 5000;
+
+    case "steps":
+      return isHovered ? 10000 : 60000;
+
+    case "alarms":
+      return isHovered ? 15000 : 60000;
+  }
+};
+
 export function useDashboardData() {
   const { isConnected } = useConnection();
 
@@ -64,6 +83,10 @@ export function useDashboardData() {
 
   const [itemStatus, setItemStatus] = useState(initialStatus);
 
+  // ==========================================
+  // REFS
+  // ==========================================
+
   const connectedRef = useRef(isConnected);
   const activeRef = useRef(false);
   const generationRef = useRef(0);
@@ -71,21 +94,21 @@ export function useDashboardData() {
   const stepsActive = useRef(false);
   const alarmsActive = useRef(false);
 
-  const measurementTimer = useRef<ReturnType<typeof setInterval> | null>(
-    null
-  );
-
-  const stepsTimer = useRef<ReturnType<typeof setInterval> | null>(
-    null
-  );
-
-  const alarmsTimer = useRef<ReturnType<typeof setInterval> | null>(
-    null
-  );
+  const timers = useRef<
+    Record<DataKey, ReturnType<typeof setTimeout> | null>
+  >({
+    measurements: null,
+    steps: null,
+    alarms: null,
+  });
 
   const controllers = useRef<
     Partial<Record<DataKey, AbortController>>
   >({});
+
+  const schedulePollingRef = useRef<
+    (key: DataKey, delay: number) => void
+  >(() => {});
 
   // ==========================================
   // FETCH DATA
@@ -100,7 +123,7 @@ export function useDashboardData() {
       return;
     }
 
-    // Hindari request ganda untuk endpoint yang sama.
+    // Satu request aktif untuk setiap resource.
     if (controllers.current[key]) {
       return;
     }
@@ -136,7 +159,6 @@ export function useDashboardData() {
 
       const result = await response.json();
 
-      // Abaikan hasil request dari sesi sebelumnya.
       if (
         generation !== generationRef.current ||
         !connectedRef.current
@@ -215,62 +237,139 @@ export function useDashboardData() {
   }, []);
 
   // ==========================================
-  // STOP POLLING
+  // CLEAR TIMER
   // ==========================================
 
-  const stopStepsPolling = useCallback(() => {
-    stepsActive.current = false;
-
-    if (stepsTimer.current) {
-      clearInterval(stepsTimer.current);
-      stepsTimer.current = null;
+  const clearPollingTimer = useCallback((key: DataKey) => {
+    if (timers.current[key]) {
+      clearTimeout(timers.current[key]!);
+      timers.current[key] = null;
     }
   }, []);
 
-  const stopAlarmsPolling = useCallback(() => {
-    alarmsActive.current = false;
-
-    if (alarmsTimer.current) {
-      clearInterval(alarmsTimer.current);
-      alarmsTimer.current = null;
-    }
+  const clearAllTimers = useCallback(() => {
+    (Object.keys(timers.current) as DataKey[]).forEach((key) => {
+      clearTimeout(timers.current[key] ?? undefined);
+      timers.current[key] = null;
+    });
   }, []);
 
   // ==========================================
-  // START STEPS POLLING
+  // CENTRAL POLLING SCHEDULER
   // ==========================================
 
+  const schedulePolling = useCallback(
+    (key: DataKey, delay: number) => {
+      clearPollingTimer(key);
+
+      if (
+        !connectedRef.current ||
+        !activeRef.current ||
+        document.hidden
+      ) {
+        return;
+      }
+
+      timers.current[key] = setTimeout(async () => {
+        timers.current[key] = null;
+
+        if (
+          !connectedRef.current ||
+          !activeRef.current ||
+          document.hidden
+        ) {
+          return;
+        }
+
+        // Tunggu request resource ini selesai.
+        await fetchData(key);
+
+        if (
+          !connectedRef.current ||
+          !activeRef.current ||
+          document.hidden
+        ) {
+          return;
+        }
+
+        // Hitung interval terbaru berdasarkan posisi pointer.
+        const isHovered =
+          key === "steps"
+            ? stepsActive.current
+            : key === "alarms"
+              ? alarmsActive.current
+              : false;
+
+        const nextInterval = getPollingInterval(
+          key,
+          isHovered
+        );
+
+        // Jadwalkan polling berikutnya.
+        schedulePollingRef.current(key, nextInterval);
+      }, delay);
+    },
+    [clearPollingTimer, fetchData]
+  );
+
+  // Referensi scheduler agar dapat memanggil dirinya sendiri.
+  schedulePollingRef.current = schedulePolling;
+
+  // ==========================================
+  // DEVICE STEPS
+  // ==========================================
+
+  // Dipanggil ketika pointer masuk panel Steps.
   const startStepsPolling = useCallback(() => {
-    if (!connectedRef.current || stepsActive.current) {
+    if (!connectedRef.current || !activeRef.current) {
       return;
     }
 
     stepsActive.current = true;
 
-    fetchData("steps");
+    // Update langsung ketika pointer masuk.
+    schedulePollingRef.current("steps", 0);
+  }, []);
 
-    stepsTimer.current = setInterval(() => {
-      fetchData("steps");
-    }, 5000);
-  }, [fetchData]);
+  // Dipanggil ketika pointer keluar panel Steps.
+  // Polling tidak dihentikan, hanya berubah menjadi 60 detik.
+  const stopStepsPolling = useCallback(() => {
+    stepsActive.current = false;
+
+    if (!connectedRef.current || !activeRef.current) {
+      return;
+    }
+
+    schedulePollingRef.current("steps", 60000);
+  }, []);
 
   // ==========================================
-  // START ALARMS POLLING
+  // DEVICE ALARMS
   // ==========================================
 
+  // Dipanggil ketika pointer masuk panel Alarms.
   const startAlarmsPolling = useCallback(() => {
-    if (!connectedRef.current || alarmsActive.current) {
+    if (!connectedRef.current || !activeRef.current) {
       return;
     }
 
     alarmsActive.current = true;
 
-    fetchData("alarms");
+    // Update langsung ketika pointer masuk.
+    schedulePollingRef.current("alarms", 0);
+  }, []);
 
-    alarmsTimer.current = setInterval(() => {
-      fetchData("alarms");
-    }, 5000);
-  }, [fetchData]);
+  // Dipanggil ketika pointer keluar panel Alarms.
+  // Polling tetap aktif setiap 60 detik.
+  const stopAlarmsPolling = useCallback(() => {
+    alarmsActive.current = false;
+
+    if (!connectedRef.current || !activeRef.current) {
+      return;
+    }
+
+    schedulePollingRef.current("alarms", 60000);
+  }, []);
 
   // ==========================================
   // GLOBAL CONNECTION CONTROL
@@ -283,23 +382,20 @@ export function useDashboardData() {
       activeRef.current = false;
       generationRef.current += 1;
 
-      // Hentikan semua timer.
-      if (measurementTimer.current) {
-        clearInterval(measurementTimer.current);
-        measurementTimer.current = null;
-      }
+      clearAllTimers();
 
-      stopStepsPolling();
-      stopAlarmsPolling();
+      stepsActive.current = false;
+      alarmsActive.current = false;
 
-      // Batalkan request yang masih berjalan.
-      Object.values(controllers.current).forEach((controller) => {
-        controller?.abort();
-      });
+      // Batalkan seluruh request aktif.
+      Object.values(controllers.current).forEach(
+        (controller) => {
+          controller?.abort();
+        }
+      );
 
       controllers.current = {};
 
-      // Bersihkan data sesi sebelumnya.
       setData({ ...initialData });
       setItemStatus(initialStatus());
 
@@ -312,29 +408,34 @@ export function useDashboardData() {
 
     activeRef.current = true;
 
-    // Ambil Measurements langsung setelah Connect.
-    fetchData("measurements");
+    // Reset status pointer saat koneksi baru.
+    stepsActive.current = false;
+    alarmsActive.current = false;
 
-    // Measurements setiap 5 detik.
-    measurementTimer.current = setInterval(() => {
-      fetchData("measurements");
-    }, 5000);
+    // Ambil seluruh data langsung saat Connect.
+    schedulePollingRef.current("measurements", 0);
+    schedulePollingRef.current("steps", 0);
+    schedulePollingRef.current("alarms", 0);
 
-    // Saat tab kembali aktif, ambil data terbaru.
+    // ========================================
+    // VISIBILITY CHANGE
+    // ========================================
+
     const handleVisibility = () => {
-      if (document.hidden || !connectedRef.current) {
+      if (document.hidden) {
+        // Hentikan timer sementara tab tidak aktif.
+        clearAllTimers();
         return;
       }
 
-      fetchData("measurements");
-
-      if (stepsActive.current) {
-        fetchData("steps");
+      if (!connectedRef.current || !activeRef.current) {
+        return;
       }
 
-      if (alarmsActive.current) {
-        fetchData("alarms");
-      }
+      // Ambil seluruh data terbaru ketika tab aktif kembali.
+      schedulePollingRef.current("measurements", 0);
+      schedulePollingRef.current("steps", 0);
+      schedulePollingRef.current("alarms", 0);
     };
 
     document.addEventListener(
@@ -345,22 +446,14 @@ export function useDashboardData() {
     return () => {
       activeRef.current = false;
 
-      if (measurementTimer.current) {
-        clearInterval(measurementTimer.current);
-        measurementTimer.current = null;
-      }
+      clearAllTimers();
 
       document.removeEventListener(
         "visibilitychange",
         handleVisibility
       );
     };
-  }, [
-    isConnected,
-    fetchData,
-    stopStepsPolling,
-    stopAlarmsPolling,
-  ]);
+  }, [isConnected, clearAllTimers]);
 
   // ==========================================
   // CLEANUP
@@ -371,20 +464,20 @@ export function useDashboardData() {
       activeRef.current = false;
       generationRef.current += 1;
 
-      if (measurementTimer.current) {
-        clearInterval(measurementTimer.current);
-      }
+      clearAllTimers();
 
-      stopStepsPolling();
-      stopAlarmsPolling();
+      stepsActive.current = false;
+      alarmsActive.current = false;
 
-      Object.values(controllers.current).forEach((controller) => {
-        controller?.abort();
-      });
+      Object.values(controllers.current).forEach(
+        (controller) => {
+          controller?.abort();
+        }
+      );
 
       controllers.current = {};
     };
-  }, [stopStepsPolling, stopAlarmsPolling]);
+  }, [clearAllTimers]);
 
   // ==========================================
   // STATUS COMPATIBILITY
@@ -393,7 +486,7 @@ export function useDashboardData() {
   const status: DashboardStatus = {
     ...itemStatus,
 
-    // Alias untuk Dashboard versi sebelumnya.
+    // Kompatibilitas Dashboard versi sebelumnya.
     loading: itemStatus.measurements.loading,
     error: itemStatus.measurements.error,
     lastUpdated: itemStatus.measurements.lastUpdated,
@@ -402,8 +495,10 @@ export function useDashboardData() {
   return {
     data,
     status,
+
     startStepsPolling,
     stopStepsPolling,
+
     startAlarmsPolling,
     stopAlarmsPolling,
   };

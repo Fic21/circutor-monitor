@@ -1,7 +1,24 @@
 
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+} from "recharts";
+
 import { useDashboardData } from "@/hooks/useDashboardData";
+import { useConnection } from "@/components/providers/ConnectionProvider";
+
+// ==========================================
+// TYPES
+// ==========================================
 
 type Measurement = {
   Name: string;
@@ -19,19 +36,90 @@ type StepsData = {
   Steps?: DeviceStep[];
 };
 
+type ChartPoint = {
+  time: string;
+  [key: string]: string | number;
+};
+
+type AlarmItem = {
+  name: string;
+  active: boolean;
+};
+
+// ==========================================
+// MEASUREMENT CONFIGURATION
+// ==========================================
+
 const measurementConfig: Record<
   string,
   { label: string; unit: string; icon: string; description: string }
 > = {
-  Voltage: { label: "Voltage", unit: "V", icon: "ϟ", description: "Tegangan listrik" },
-  Current: { label: "Current", unit: "A", icon: "∿", description: "Arus listrik" },
-  ActivePower: { label: "Active Power", unit: "kW", icon: "⚡", description: "Daya aktif" },
-  ReactivePower: { label: "Reactive Power", unit: "kVAr", icon: "◒", description: "Daya reaktif" },
-  ApparentPower: { label: "Apparent Power", unit: "kVA", icon: "◈", description: "Daya semu" },
-  CosPhi: { label: "Power Factor", unit: "", icon: "φ", description: "Faktor daya" },
-  THDv: { label: "Voltage THD", unit: "%", icon: "〰", description: "Distorsi harmonisa tegangan" },
-  THDi: { label: "Current THD", unit: "%", icon: "∿", description: "Distorsi harmonisa arus" },
-  Frequency: { label: "Frequency", unit: "Hz", icon: "◷", description: "Frekuensi listrik" },
+  Voltage: {
+    label: "Voltage",
+    unit: "V",
+    icon: "ϟ",
+    description: "Tegangan listrik",
+  },
+  Current: {
+    label: "Current",
+    unit: "A",
+    icon: "∿",
+    description: "Arus listrik",
+  },
+  ActivePower: {
+    label: "Active Power",
+    unit: "kW",
+    icon: "⚡",
+    description: "Daya aktif",
+  },
+  ReactivePower: {
+    label: "Reactive Power",
+    unit: "kVAr",
+    icon: "◒",
+    description: "Daya reaktif",
+  },
+  ApparentPower: {
+    label: "Apparent Power",
+    unit: "kVA",
+    icon: "◈",
+    description: "Daya semu",
+  },
+  CosPhi: {
+    label: "Power Factor",
+    unit: "",
+    icon: "φ",
+    description: "Faktor daya",
+  },
+  THDv: {
+    label: "Voltage THD",
+    unit: "%",
+    icon: "〰",
+    description: "Distorsi harmonisa tegangan",
+  },
+  THDi: {
+    label: "Current THD",
+    unit: "%",
+    icon: "∿",
+    description: "Distorsi harmonisa arus",
+  },
+  Frequency: {
+    label: "Frequency",
+    unit: "Hz",
+    icon: "◷",
+    description: "Frekuensi listrik",
+  },
+};
+
+const chartColors: Record<string, string> = {
+  Voltage: "#22d3ee",
+  Current: "#a78bfa",
+  ActivePower: "#34d399",
+  ReactivePower: "#fbbf24",
+  ApparentPower: "#fb7185",
+  CosPhi: "#60a5fa",
+  THDv: "#f472b6",
+  THDi: "#c084fc",
+  Frequency: "#f97316",
 };
 
 // ==========================================
@@ -54,7 +142,9 @@ function formatValue(value: string | number) {
   const number = Number(value);
 
   return Number.isFinite(number)
-    ? number.toLocaleString("id-ID", { maximumFractionDigits: 2 })
+    ? number.toLocaleString("id-ID", {
+        maximumFractionDigits: 2,
+      })
     : String(value);
 }
 
@@ -63,12 +153,304 @@ function isStatusActive(value: unknown): boolean {
   if (typeof value === "number") return value !== 0;
 
   if (typeof value === "string") {
-    return ["ON", "ACTIVE", "TRUE", "1", "ALARM", "ACTIVATED"].includes(
-      value.trim().toUpperCase()
-    );
+    return [
+      "ON",
+      "ACTIVE",
+      "TRUE",
+      "1",
+      "ALARM",
+      "ACTIVATED",
+    ].includes(value.trim().toUpperCase());
   }
 
   return false;
+}
+
+// ==========================================
+// MEASUREMENT CHART
+// ==========================================
+
+function MeasurementChart({
+  measurements,
+}: {
+  measurements: Measurement[];
+}) {
+  const [history, setHistory] = useState<ChartPoint[]>([]);
+
+  const [selected, setSelected] = useState<string[]>([
+    "Voltage",
+    "Current",
+    "ActivePower",
+  ]);
+
+  // Stable snapshot: only changes when measurement values change
+  const measurementSnapshot = JSON.stringify(
+    measurements.map((item) => ({
+      Name: item.Name,
+      Value: Number(item.Instantaneous),
+    }))
+  );
+
+  const availableNames = useMemo(
+    () => measurements.map((item) => item.Name),
+    [measurementSnapshot]
+  );
+
+  // Record measurement history
+  useEffect(() => {
+    const snapshot = JSON.parse(measurementSnapshot) as {
+      Name: string;
+      Value: number;
+    }[];
+
+    if (snapshot.length === 0) return;
+
+    const point: ChartPoint = {
+      time: new Date().toLocaleTimeString("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+    };
+
+    snapshot.forEach((item) => {
+      point[item.Name] = Number.isFinite(item.Value)
+        ? item.Value
+        : 0;
+    });
+
+    setHistory((previous) => {
+      const next = [...previous, point];
+      return next.slice(-60);
+    });
+  }, [measurementSnapshot]);
+
+  // Synchronize checkbox with available parameters
+  useEffect(() => {
+    setSelected((previous) => {
+      const next = previous.filter((name) =>
+        availableNames.includes(name)
+      );
+
+      const unchanged =
+        next.length === previous.length &&
+        next.every((name, index) => name === previous[index]);
+
+      return unchanged ? previous : next;
+    });
+  }, [measurementSnapshot]);
+
+  function toggleMeasurement(name: string) {
+    setSelected((previous) =>
+      previous.includes(name)
+        ? previous.filter((item) => item !== name)
+        : [...previous, name]
+    );
+  }
+
+  function toggleAll() {
+    setSelected((previous) =>
+      previous.length === availableNames.length
+        ? []
+        : [...availableNames]
+    );
+  }
+
+  return (
+    <section className="border border-slate-700/70 bg-[#101b2d] p-4 shadow-xl sm:p-5">
+      {/* HEADER */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]" />
+
+            <h2 className="text-base font-bold tracking-wide text-white">
+              Electrical Trend Analysis
+            </h2>
+          </div>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Historical electrical measurement monitoring
+          </p>
+        </div>
+
+        <span className="border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-bold tracking-wider text-cyan-400">
+          {history.length} DATA POINTS
+        </span>
+      </div>
+
+      {/* CHECKBOX PARAMETERS */}
+      <div className="mt-5 border border-slate-700/70 bg-[#0b1423] p-3">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-[10px] font-bold tracking-widest text-slate-400">
+            SELECT PARAMETERS
+          </p>
+
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="text-[10px] font-semibold text-cyan-400 hover:text-cyan-300"
+          >
+            {selected.length === availableNames.length
+              ? "DESELECT ALL"
+              : "SELECT ALL"}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-x-5 gap-y-3">
+          {measurements.map((item) => {
+            const config = measurementConfig[item.Name];
+            const checked = selected.includes(item.Name);
+            const color = chartColors[item.Name] ?? "#22d3ee";
+
+            return (
+              <label
+                key={item.Name}
+                className="flex cursor-pointer items-center gap-2"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleMeasurement(item.Name)}
+                  className="h-3.5 w-3.5 cursor-pointer accent-cyan-400"
+                />
+
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: color }}
+                />
+
+                <span
+                  className={`text-xs ${
+                    checked ? "text-slate-200" : "text-slate-500"
+                  }`}
+                >
+                  {config?.label ?? item.Name}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* CHART */}
+      <div className="mt-5 h-[320px] w-full">
+        {history.length === 0 ? (
+          <div className="flex h-full items-center justify-center border border-dashed border-slate-700 text-xs text-slate-500">
+            Waiting for measurement history...
+          </div>
+        ) : selected.length === 0 ? (
+          <div className="flex h-full items-center justify-center border border-dashed border-slate-700 text-xs text-slate-500">
+            Select at least one parameter to display the chart
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={history}
+              margin={{
+                top: 10,
+                right: 15,
+                left: 0,
+                bottom: 5,
+              }}
+            >
+              <CartesianGrid
+                stroke="#334155"
+                strokeDasharray="3 3"
+                vertical={false}
+              />
+
+              <XAxis
+                dataKey="time"
+                stroke="#64748b"
+                tick={{
+                  fill: "#94a3b8",
+                  fontSize: 10,
+                }}
+                tickLine={false}
+                axisLine={{ stroke: "#334155" }}
+                minTickGap={25}
+              />
+
+              <YAxis
+                stroke="#64748b"
+                tick={{
+                  fill: "#94a3b8",
+                  fontSize: 10,
+                }}
+                tickLine={false}
+                axisLine={false}
+                width={55}
+                domain={["auto", "auto"]}
+              />
+
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#0b1423",
+                  border: "1px solid #334155",
+                  borderRadius: "0px",
+                  color: "#fff",
+                  fontSize: "11px",
+                }}
+                labelStyle={{
+                  color: "#94a3b8",
+                  marginBottom: 8,
+                }}
+                formatter={(value, name) => {
+                  const key = String(name);
+                  const config = measurementConfig[key];
+
+                  return [
+                    `${formatValue(Number(value))} ${config?.unit ?? ""}`,
+                    config?.label ?? key,
+                  ];
+                }}
+              />
+
+              <Legend
+                wrapperStyle={{
+                  fontSize: "10px",
+                  paddingTop: "12px",
+                }}
+                formatter={(value) =>
+                  measurementConfig[String(value)]?.label ?? value
+                }
+              />
+
+              {selected.map((name) => (
+                <Line
+                  key={name}
+                  type="monotone"
+                  dataKey={name}
+                  name={name}
+                  stroke={chartColors[name] ?? "#22d3ee"}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{
+                    r: 4,
+                    strokeWidth: 0,
+                  }}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* FOOTER */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-3">
+        <p className="text-[10px] text-slate-500">
+          Maximum 60 historical data points
+        </p>
+
+        <p className="text-[10px] text-slate-500">
+          Sampling follows measurement updates
+        </p>
+      </div>
+    </section>
+  );
 }
 
 // ==========================================
@@ -85,7 +467,11 @@ function StepsPanel({
   onMouseLeave: () => void;
 }) {
   const stepsData = data as StepsData | null;
-  const steps = Array.isArray(stepsData?.Steps) ? stepsData.Steps : [];
+
+  const steps = Array.isArray(stepsData?.Steps)
+    ? stepsData.Steps
+    : [];
+
   const operatingHours = stepsData?.OperatingHours ?? 0;
 
   const activeCount = steps.filter(
@@ -100,15 +486,16 @@ function StepsPanel({
     >
       <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-cyan-500/10 blur-3xl" />
 
-      {/* HEADER */}
       <div className="relative flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_12px_#22d3ee]" />
+
             <h2 className="font-bold tracking-wide text-white">
               Device Steps
             </h2>
           </div>
+
           <p className="mt-1 text-xs text-slate-400">
             Capacitor switching sequence
           </p>
@@ -118,6 +505,7 @@ function StepsPanel({
           <p className="text-xl font-bold text-emerald-400">
             {activeCount}/{steps.length}
           </p>
+
           <p className="text-[9px] tracking-widest text-slate-400">
             ACTIVE STEPS
           </p>
@@ -131,11 +519,15 @@ function StepsPanel({
             <p className="text-[10px] font-semibold tracking-[0.2em] text-slate-400">
               TOTAL OPERATING HOURS
             </p>
+
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-3xl font-bold text-cyan-400">
                 {formatValue(operatingHours)}
               </span>
-              <span className="text-sm text-slate-400">Hours</span>
+
+              <span className="text-sm text-slate-400">
+                Hours
+              </span>
             </div>
           </div>
 
@@ -145,14 +537,13 @@ function StepsPanel({
         </div>
       </div>
 
-      {/* STEP SEQUENCE - HORIZONTAL */}
-=======
->>>>>>> 27672e51181db2edb72074e1b3402fb0ae76d8c2
+      {/* STEP SEQUENCE */}
       <div className="relative mt-5">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-xs font-bold tracking-widest text-slate-300">
             STEP SEQUENCE
           </p>
+
           <p className="text-[10px] text-slate-500">
             {steps.length} TOTAL STEPS
           </p>
@@ -161,7 +552,8 @@ function StepsPanel({
         {steps.length > 0 ? (
           <div className="flex w-full gap-3 overflow-x-auto pb-3">
             {steps.map((step) => {
-              const active = String(step.Status).toUpperCase() === "ON";
+              const active =
+                String(step.Status).toUpperCase() === "ON";
 
               return (
                 <div
@@ -190,6 +582,7 @@ function StepsPanel({
                     <p className="text-[10px] tracking-widest text-slate-500">
                       COUNTER
                     </p>
+
                     <p className="mt-1 text-2xl font-bold text-white">
                       {formatValue(step.Counter)}
                     </p>
@@ -202,7 +595,9 @@ function StepsPanel({
 
                     <span
                       className={`text-[10px] font-bold tracking-widest ${
-                        active ? "text-emerald-400" : "text-slate-500"
+                        active
+                          ? "text-emerald-400"
+                          : "text-slate-500"
                       }`}
                     >
                       {step.Status}
@@ -223,13 +618,8 @@ function StepsPanel({
 }
 
 // ==========================================
-// DEVICE ALARMS
+// DEVICE ALARMS HELPERS
 // ==========================================
-
-type AlarmItem = {
-  name: string;
-  active: boolean;
-};
 
 function getAlarmItems(raw: unknown): AlarmItem[] {
   if (raw === null || raw === undefined) return [];
@@ -275,13 +665,13 @@ function getAlarmItems(raw: unknown): AlarmItem[] {
   return records.map((record, index) => {
     const name = String(
       record.Name ??
-      record.name ??
-      record.Alarm ??
-      record.alarm ??
-      record.Description ??
-      record.description ??
-      record.Code ??
-      `Alarm ${index + 1}`
+        record.name ??
+        record.Alarm ??
+        record.alarm ??
+        record.Description ??
+        record.description ??
+        record.Code ??
+        `Alarm ${index + 1}`
     );
 
     const status =
@@ -301,6 +691,10 @@ function getAlarmItems(raw: unknown): AlarmItem[] {
   });
 }
 
+// ==========================================
+// DEVICE ALARMS
+// ==========================================
+
 function AlarmPanel({
   data,
   onMouseEnter,
@@ -311,7 +705,10 @@ function AlarmPanel({
   onMouseLeave: () => void;
 }) {
   const alarms = getAlarmItems(data);
-  const activeCount = alarms.filter((alarm) => alarm.active).length;
+
+  const activeCount = alarms.filter(
+    (alarm) => alarm.active
+  ).length;
 
   return (
     <section
@@ -321,15 +718,16 @@ function AlarmPanel({
     >
       <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-red-500/10 blur-3xl" />
 
-      {/* HEADER */}
       <div className="relative flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-red-400 shadow-[0_0_12px_#f87171]" />
+
             <h2 className="font-bold tracking-wide text-white">
               Device Alarms
             </h2>
           </div>
+
           <p className="mt-1 text-xs text-slate-400">
             Fault detection and protection monitoring
           </p>
@@ -344,11 +742,14 @@ function AlarmPanel({
         >
           <p
             className={`text-xl font-bold ${
-              activeCount > 0 ? "text-red-400" : "text-emerald-400"
+              activeCount > 0
+                ? "text-red-400"
+                : "text-emerald-400"
             }`}
           >
             {activeCount}
           </p>
+
           <p className="text-[9px] tracking-widest text-slate-400">
             ACTIVE
           </p>
@@ -361,6 +762,7 @@ function AlarmPanel({
           <p className="text-[10px] tracking-widest text-slate-500">
             TOTAL ALARMS
           </p>
+
           <p className="mt-1 text-2xl font-bold text-white">
             {alarms.length}
           </p>
@@ -370,18 +772,20 @@ function AlarmPanel({
           <p className="text-[10px] tracking-widest text-slate-500">
             NORMAL
           </p>
+
           <p className="mt-1 text-2xl font-bold text-emerald-400">
             {alarms.length - activeCount}
           </p>
         </div>
       </div>
 
-      {/* ALARM SEQUENCE - HORIZONTAL */}
+      {/* ALARM MONITORING */}
       <div className="relative mt-5">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-xs font-bold tracking-widest text-slate-300">
             ALARM MONITORING
           </p>
+
           <p className="text-[10px] text-slate-500">
             {alarms.length} TOTAL ALARMS
           </p>
@@ -409,7 +813,9 @@ function AlarmPanel({
 
                   <p
                     className={`mt-2 text-[10px] font-bold tracking-widest ${
-                      alarm.active ? "text-red-400" : "text-emerald-400"
+                      alarm.active
+                        ? "text-red-400"
+                        : "text-emerald-400"
                     }`}
                   >
                     {alarm.active ? "ACTIVE" : "NORMAL"}
@@ -433,14 +839,16 @@ function AlarmPanel({
         )}
       </div>
 
-      {/* ALARM WARNING */}
+      {/* ACTIVE ALARM WARNING */}
       {activeCount > 0 && (
         <div className="relative mt-4 flex items-center gap-3 border border-red-500/40 bg-red-500/10 p-3">
           <span className="h-3 w-3 animate-ping rounded-full bg-red-500" />
+
           <div>
             <p className="text-xs font-bold tracking-wider text-red-400">
               ACTIVE ALARM DETECTED
             </p>
+
             <p className="mt-1 text-[10px] text-red-300/70">
               {activeCount} alarm(s) require attention
             </p>
@@ -448,9 +856,11 @@ function AlarmPanel({
         </div>
       )}
 
+      {/* ALL NORMAL */}
       {alarms.length > 0 && activeCount === 0 && (
         <div className="relative mt-4 flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 p-3">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.6)]" />
+
           <p className="text-xs font-bold tracking-wider text-emerald-400">
             ALL SYSTEMS NORMAL
           </p>
@@ -474,11 +884,29 @@ export default function DashboardPage() {
     stopAlarmsPolling,
   } = useDashboardData();
 
-  const measurements = getMeasurements(data.measurements);
-  const isConnected = !status.error && !status.loading;
+  const { status: connectionStatus } = useConnection();
+
+  const isConnected = connectionStatus === "connected";
+
+  // Stable measurements reference
+  const measurements = useMemo(
+    () => getMeasurements(data.measurements),
+    [data.measurements]
+  );
+
+  const connectionLabel =
+    connectionStatus === "connecting"
+      ? "CONNECTING"
+      : connectionStatus === "disconnecting"
+        ? "DISCONNECTING"
+        : connectionStatus === "checking"
+          ? "CHECKING"
+          : isConnected
+            ? "SYSTEM ONLINE"
+            : "SYSTEM OFFLINE";
 
   return (
-    <main className="min-h-screen space-y-7 bg-[#080f1c] p-4 text-white sm:p-6 lg:p-8">
+    <main className="min-h-screen space-y-6 bg-[#080f1c] p-4 text-white sm:p-6 lg:p-8">
 
       {/* HEADER */}
       <header className="flex flex-col justify-between gap-4 border-b border-slate-800 pb-6 sm:flex-row sm:items-center">
@@ -501,22 +929,24 @@ export default function DashboardPage() {
             className={`h-3 w-3 rounded-full ${
               isConnected
                 ? "animate-pulse bg-emerald-400 shadow-[0_0_12px_3px_rgba(52,211,153,0.4)]"
-                : "bg-red-500"
+                : connectionStatus === "connecting" ||
+                    connectionStatus === "disconnecting" ||
+                    connectionStatus === "checking"
+                  ? "animate-pulse bg-amber-400"
+                  : "bg-red-500"
             }`}
           />
 
           <div>
             <p className="text-sm font-bold">
-              {status.loading
-                ? "CONNECTING"
-                : status.error
-                  ? "DISCONNECTED"
-                  : "SYSTEM ONLINE"}
+              {connectionLabel}
             </p>
 
             <p className="mt-1 text-[10px] tracking-wider text-slate-500">
               {status.lastUpdated
-                ? `LAST UPDATE: ${new Date(status.lastUpdated).toLocaleTimeString("id-ID")}`
+                ? `LAST UPDATE: ${new Date(
+                    status.lastUpdated
+                  ).toLocaleTimeString("id-ID")}`
                 : "WAITING FOR DATA"}
             </p>
           </div>
@@ -524,20 +954,35 @@ export default function DashboardPage() {
       </header>
 
       {/* CONNECTION ERROR */}
-      {status.error && (
+      {connectionStatus === "disconnected" && (
         <div className="border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-300">
-          <p className="font-bold">CONNECTION ERROR</p>
-          <p className="mt-1">{String(status.error)}</p>
+          <p className="font-bold">DEVICE OFFLINE</p>
+
+          <p className="mt-1">
+            CIRCUTOR device is currently disconnected.
+          </p>
+        </div>
+      )}
+
+      {/* DATA ERROR */}
+      {isConnected && status.error && (
+        <div className="border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-300">
+          <p className="font-bold">DATA RETRIEVAL ERROR</p>
+
+          <p className="mt-1">
+            {String(status.error)}
+          </p>
         </div>
       )}
 
       {/* ELECTRICAL MEASUREMENTS */}
       <section>
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold tracking-wide">
               Electrical Measurements
             </h2>
+
             <p className="mt-1 text-xs text-slate-500">
               Live electrical parameters
             </p>
@@ -549,11 +994,13 @@ export default function DashboardPage() {
         </div>
 
         {measurements.length === 0 ? (
-          <div className="border border-slate-800 bg-[#101b2d] p-12 text-center text-sm text-slate-500">
-            No measurement data available
+          <div className="border border-slate-800 bg-[#101b2d] p-10 text-center text-sm text-slate-500">
+            {isConnected
+              ? "No measurement data available"
+              : "Connect to CIRCUTOR to view measurements"}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-5">
             {measurements.map((item) => {
               const config = measurementConfig[item.Name] ?? {
                 label: item.Name,
@@ -565,40 +1012,42 @@ export default function DashboardPage() {
               return (
                 <div
                   key={item.Name}
-                  className="group relative overflow-hidden border border-slate-700/70 bg-[#101b2d] p-5 transition duration-300 hover:-translate-y-1 hover:border-cyan-500/50 hover:shadow-[0_0_25px_rgba(6,182,212,0.08)]"
+                  className="group relative overflow-hidden border border-slate-700/70 bg-[#101b2d] p-3 transition duration-300 hover:border-cyan-500/50 hover:shadow-[0_0_20px_rgba(6,182,212,0.08)] sm:p-4"
                 >
-                  <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-cyan-500/5 blur-2xl" />
+                  <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-cyan-500/5 blur-2xl" />
 
-                  <div className="relative flex items-start justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-300">
+                  <div className="relative flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-slate-300 sm:text-sm">
                         {config.label}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
+
+                      <p className="mt-1 line-clamp-1 text-[10px] text-slate-500">
                         {config.description}
                       </p>
                     </div>
 
-                    <div className="flex h-11 w-11 items-center justify-center border border-cyan-500/20 bg-cyan-500/10 text-xl font-bold text-cyan-400">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-cyan-500/20 bg-cyan-500/10 text-base font-bold text-cyan-400">
                       {config.icon}
                     </div>
                   </div>
 
-                  <div className="relative mt-7 flex items-baseline gap-2">
-                    <span className="text-4xl font-bold tracking-tight text-white">
+                  <div className="relative mt-5 flex items-baseline gap-1.5">
+                    <span className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
                       {formatValue(item.Instantaneous)}
                     </span>
-                    <span className="text-sm font-semibold text-cyan-400">
+
+                    <span className="text-xs font-semibold text-cyan-400">
                       {config.unit}
                     </span>
                   </div>
 
-                  <div className="relative mt-5 h-1 overflow-hidden bg-slate-800">
-                    <div className="h-full w-2/3 bg-gradient-to-r from-blue-500 to-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.6)]" />
+                  <div className="relative mt-4 h-0.5 overflow-hidden bg-slate-800">
+                    <div className="h-full w-2/3 bg-gradient-to-r from-blue-500 to-cyan-400" />
                   </div>
 
-                  <p className="relative mt-2 text-[10px] uppercase tracking-widest text-slate-600">
-                    Instantaneous value
+                  <p className="relative mt-2 text-[9px] uppercase tracking-widest text-slate-600">
+                    Instantaneous
                   </p>
                 </div>
               );
@@ -606,6 +1055,9 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+
+      {/* MEASUREMENT TREND CHART */}
+      <MeasurementChart measurements={measurements} />
 
       {/* DEVICE STEPS */}
       <section>

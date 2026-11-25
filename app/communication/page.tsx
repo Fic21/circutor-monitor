@@ -194,14 +194,32 @@ export default function CommunicationPage() {
         signal,
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      // Baca response sebagai text agar pesan error backend tidak hilang.
+      const responseText = await response.text();
+
+      let responseData: unknown;
+
+      try {
+        responseData = responseText
+          ? JSON.parse(responseText)
+          : null;
+      } catch {
+        responseData = responseText;
       }
 
-      const data = (await response.json()) as T;
+      if (!response.ok) {
+        const errorMessage =
+          typeof responseData === "object" && responseData !== null
+            ? JSON.stringify(responseData)
+            : String(responseData || `HTTP ${response.status}`);
+
+        throw new Error(
+          `HTTP ${response.status}: ${errorMessage}`
+        );
+      }
 
       return {
-        data,
+        data: responseData as T,
         error: null,
       };
     } catch (error) {
@@ -382,7 +400,7 @@ export default function CommunicationPage() {
           {wifi.error && (
             <div className="mb-4 flex items-center gap-2 bg-red-500/10 p-3 text-sm text-red-400">
               <AlertCircle size={16} />
-              {wifi.error}
+              <span className="break-all">{wifi.error}</span>
             </div>
           )}
 
@@ -435,7 +453,7 @@ export default function CommunicationPage() {
           {bluetooth.error && (
             <div className="mb-4 flex items-center gap-2 bg-red-500/10 p-3 text-sm text-red-400">
               <AlertCircle size={16} />
-              {bluetooth.error}
+              <span className="break-all">{bluetooth.error}</span>
             </div>
           )}
 
@@ -486,7 +504,7 @@ export default function CommunicationPage() {
           {thingsBoard.error && (
             <div className="mb-4 flex items-center gap-2 bg-red-500/10 p-3 text-sm text-red-400">
               <AlertCircle size={16} />
-              {thingsBoard.error}
+              <span className="break-all">{thingsBoard.error}</span>
             </div>
           )}
 
