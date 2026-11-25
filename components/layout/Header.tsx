@@ -1,53 +1,59 @@
-import { Bell, RefreshCw } from "lucide-react";
 
-interface Props {
-  connected: boolean;
-  lastUpdated: string | null;
-  onRefresh: () => void;
-}
+import { Activity, Radio } from "lucide-react";
 
-export default function Header({
-  connected,
-  lastUpdated,
-  onRefresh,
-}: Props) {
+export default function Header() {
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">
-          Energy Overview
-        </h2>
-        <p className="text-xs text-slate-500">
-          CIRCUTOR Computer C6
-        </p>
-      </div>
+    <header className="relative w-full overflow-hidden rounded-2xl border border-cyan-500/20 bg-[#0b1423] shadow-[0_0_30px_rgba(6,182,212,0.06)]">
 
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 text-sm">
-          <span
-            className={`h-2.5 w-2.5 rounded-full ${
-              connected ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-          <span className="text-slate-600">
-            {connected ? "Connected" : "Disconnected"}
-          </span>
+      {/* Background effects */}
+      <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-cyan-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-24 left-1/3 h-48 w-48 rounded-full bg-blue-500/10 blur-3xl" />
+
+      <div className="relative flex min-h-[100px] w-full items-center justify-between gap-4 px-5 py-5 sm:px-7 lg:px-8">
+
+        {/* LEFT */}
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-400/10 sm:h-12 sm:w-12">
+            <Activity
+              size={24}
+              className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]"
+            />
+            <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]" />
+          </div>
+
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-black tracking-[0.08em] text-white sm:text-xl sm:tracking-[0.12em]">
+              CIRCUTOR<span className="text-cyan-400">-MONITOR</span>
+            </h1>
+
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="h-px w-5 shrink-0 bg-cyan-400" />
+              <p className="truncate text-[9px] font-semibold tracking-[0.18em] text-slate-400 sm:text-[10px] sm:tracking-[0.25em]">
+                INDUSTRIAL ENERGY MONITORING
+              </p>
+            </div>
+          </div>
         </div>
 
-        <button
-          onClick={onRefresh}
-          className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100"
-          title="Refresh data"
-        >
-          <RefreshCw size={18} />
-        </button>
+        {/* RIGHT */}
+        <div className="flex shrink-0 items-center gap-2 border-l border-slate-700/70 pl-3 sm:gap-3 sm:pl-6">
+          <div className="hidden text-right sm:block">
+            <p className="text-[9px] tracking-[0.25em] text-slate-500">
+              DEVELOPED BY
+            </p>
+            <p className="mt-1 text-sm font-bold tracking-[0.2em] text-cyan-300">
+              FIKRA
+            </p>
+          </div>
 
-        <Bell size={19} className="text-slate-500" />
-
-        <span className="hidden text-xs text-slate-500 sm:block">
-          Updated: {lastUpdated ?? "--"}
-        </span>
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800/70">
+            <Radio size={17} className="text-cyan-400" />
+          </div>
+        </div>
       </div>
+
+      {/* Bottom accent */}
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent" />
     </header>
   );
 }
